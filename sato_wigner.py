@@ -1,12 +1,14 @@
-import os
 import json
-import numpy as np
-from functools import reduce
+import os
 from dataclasses import dataclass
+from functools import reduce
+
+import numpy as np
 from tqdm import tqdm
 
 OUTPUT_DIR = "out"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 @dataclass(frozen=True)
 class ResultKey:
@@ -92,7 +94,7 @@ def main_worker(nqubit, seed):
     sca_z = 0.73
     #####################
 
-    dataham = np.zeros((2**nqubit, 2**nqubit), dtype=complex)
+    dataham = np.zeros((2 ** nqubit, 2 ** nqubit), dtype=complex)
 
     # ハミルトニアンを作成
 
@@ -106,13 +108,13 @@ def main_worker(nqubit, seed):
 
         for j in range(nqubit):
             dataham += Jmat[i][j] * \
-                make_fullgate([[i, X_mat], [j, X_mat]], nqubit)
+                       make_fullgate([[i, X_mat], [j, X_mat]], nqubit)
 
             dataham += Jmat[i][j] * \
-                make_fullgate([[i, Y_mat], [j, Y_mat]], nqubit)
+                       make_fullgate([[i, Y_mat], [j, Y_mat]], nqubit)
 
             dataham += sca_z * Jmat[i][j] * \
-                make_fullgate([[i, Z_mat], [j, Z_mat]], nqubit)
+                       make_fullgate([[i, Z_mat], [j, Z_mat]], nqubit)
 
     diag, eigen_vecs = np.linalg.eigh(dataham)
 
@@ -139,10 +141,11 @@ def list_result_keys(output_dir: str) -> list[ResultKey]:
     return [ResultKey.from_filename(f) for f in os.listdir(output_dir) if f.endswith(".json")]
 
 
-def run_with_param(target_n_qubit: int, target_seed_list: list[int]):
+def run_with_param(target_n_qubit: int, target_seed_list: list[int], cpu_count: int):
     print("run_with_param")
     print(" - target_n_qubit:", target_n_qubit)
     print(" - target_seed_list:", target_seed_list)
+    print(" - cpu_count:", cpu_count)
 
     key_set = KeySet.from_folder(OUTPUT_DIR)
 
@@ -151,11 +154,12 @@ def run_with_param(target_n_qubit: int, target_seed_list: list[int]):
     for target_seed in target_seed_list:
         if not key_set.has_key(target_n_qubit, target_seed):
             insufficient_keys.append(
-                ResultKey(n_qubit=target_n_qubit, seed=target_seed))
+                ResultKey(n_qubit=target_n_qubit, seed=target_seed)
+            )
 
     # joblibを使って並列実行
     from joblib import Parallel, delayed
-    Parallel(n_jobs=os.cpu_count() - 1)(
+    Parallel(n_jobs=cpu_count)(
         delayed(main_worker)(key.n_qubit, key.seed) for key in tqdm(insufficient_keys)
     )
 
@@ -168,7 +172,8 @@ def main():
             "指定した量子ビット数と実行回数でWigner計算を実行し、"
             "結果をJSONファイルとして保存します。\n"
             "n_qubit: 量子ビット数\n"
-            "run_count: 実行回数（seed=1からrun_countまで）"
+            "run_count: 実行回数（seed=1からrun_countまで）\n"
+            "cpu_count: 実行に使用するCPU数"
         )
     )
     parser.add_argument(
@@ -187,11 +192,23 @@ def main():
             "例: 3 なら seed=1,2,3 で実行"
         )
     )
+    max_cpu_count = os.cpu_count() - 1
+    parser.add_argument(
+        "--cpu-count",
+        type=int,
+        default=max_cpu_count,
+        help=(
+            "実行に使用するCPU数を指定します。指定なしの場合、最大のCPU数が使用されます。最大のCPU数はマシンに実装されている(コア数-1)です。"
+        )
+    )
     args = parser.parse_args()
     n_qubit = args.n_qubit
     run_count = args.run_count
+    cpu_count = args.cpu_count
+    if cpu_count > max_cpu_count:
+        cpu_count = max_cpu_count
     target_seed_list = list(range(1, run_count + 1))
-    run_with_param(target_n_qubit=n_qubit, target_seed_list=target_seed_list)
+    run_with_param(target_n_qubit=n_qubit, target_seed_list=target_seed_list, cpu_count=cpu_count)
 
 
 # main関数を呼び出す
